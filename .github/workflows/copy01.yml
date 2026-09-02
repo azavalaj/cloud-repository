@@ -1,0 +1,49 @@
+name: M4-C1 OIDC Verify
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  verify:
+    name: Verify temporary AWS identity
+    runs-on: ubuntu-latest
+    environment: lab
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      STUDENT_IDENTITY: ${{ vars.STUDENT_IDENTITY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inspect OIDC claims without printing token
+        env:
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, urllib.request
+          request = urllib.request.Request(
+              os.environ['ACTIONS_ID_TOKEN_REQUEST_URL'],
+              headers={'Authorization': f'bearer {os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]}'},
+          )
+          token = json.load(urllib.request.urlopen(request))['value']
+          claims = json.loads(base64.urlsafe_b64decode(token.split('.')[1] + '=='))
+          print('OIDC_SUB=' + claims.get('sub', ''))
+          print('OIDC_AUD=' + str(claims.get('aud', '')))
+          PY
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Show temporary AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Show student identity
+        run: printf 'STUDENT_IDENTITY=%s\n' "$STUDENT_IDENTITY"
